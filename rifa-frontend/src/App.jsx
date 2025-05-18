@@ -13,7 +13,7 @@ const App = () => {
   useEffect(() => {
     const buscarNumeros = async () => {
       try {
-        const response = await axios.get("http://localhost:3000/numeros");
+        const response = await axios.get("https://rifa-project-08f5.onrender.com/numeros");
         setNumeros(response.data);
       } catch (err) {
         alert("Erro ao buscar números: " + err.message);
@@ -41,7 +41,7 @@ const App = () => {
     }
 
     try {
-      const response = await axios.post("http://localhost:3000/create-payment", {
+      const response = await axios.post("https://rifa-project-08f5.onrender.com/create-payment", {
         nome,
         telefone,
         numeros: numerosSelecionados,
