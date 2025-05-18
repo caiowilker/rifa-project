@@ -9,19 +9,26 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Firebase setup
-const serviceAccount = require("./firebaseServiceAccountKey.json");
+// 🔐 Firebase setup via variável de ambiente
+let serviceAccount;
+try {
+  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON);
+} catch (error) {
+  console.error("Erro ao carregar as credenciais do Firebase:", error);
+  process.exit(1);
+}
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 const db = admin.firestore();
 
-// Mercado Pago versão 2.7
+// 🛒 Mercado Pago (versão 2.7)
 const mp = new mercadopago.MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN,
 });
 
-// Endpoint para criar pagamento (agora aceita múltiplos números)
+// 🧾 Criar pagamento
 app.post("/create-payment", async (req, res) => {
   const { nome, telefone, numeros } = req.body;
 
@@ -32,7 +39,7 @@ app.post("/create-payment", async (req, res) => {
 
     const numerosStr = numeros.map((n) => n.toString());
 
-    // Verifica se algum número já está reservado ou pago
+    // Verificar disponibilidade dos números
     const snapshot = await db.getAll(...numerosStr.map((n) => db.collection("numeros").doc(n)));
     for (let i = 0; i < snapshot.length; i++) {
       const doc = snapshot[i];
@@ -41,7 +48,7 @@ app.post("/create-payment", async (req, res) => {
       }
     }
 
-    // Salva todos os números como reservados
+    // Reservar números
     const batch = db.batch();
     numerosStr.forEach((n) => {
       const ref = db.collection("numeros").doc(n);
@@ -57,7 +64,7 @@ app.post("/create-payment", async (req, res) => {
     const total = numeros.length * 5; // R$5 por número
     const title = `Rifa número(s): ${numerosStr.join(", ")}`;
 
-    // Simula link se não houver token do Mercado Pago
+    // Fallback de simulação
     if (!process.env.MP_ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN === "") {
       return res.json({
         init_point: "https://www.mercadopago.com.br/sandbox/checkout/simulado",
@@ -79,7 +86,7 @@ app.post("/create-payment", async (req, res) => {
         default_payment_method_id: "pix",
       },
       notification_url: process.env.NOTIFICATION_URL,
-      external_reference: numerosStr.join(","), // separa por vírgulas
+      external_reference: numerosStr.join(","),
     };
 
     const preferenceResponse = await mp.preferences.create({ body: preference });
@@ -94,7 +101,7 @@ app.post("/create-payment", async (req, res) => {
   }
 });
 
-// Webhook do Mercado Pago
+// 📩 Webhook do Mercado Pago
 app.post("/webhook", async (req, res) => {
   try {
     const paymentId = req.body.data?.id;
@@ -131,7 +138,7 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// Endpoint para listar todos os números
+// 📄 Listar números
 app.get("/numeros", async (req, res) => {
   try {
     const snapshot = await db.collection("numeros").get();
@@ -146,9 +153,9 @@ app.get("/numeros", async (req, res) => {
   }
 });
 
-// Rota raiz
+// 🏠 Rota raiz
 app.get("/", (req, res) => res.send("✅ API da Rifa Rodando com Mercado Pago 2.7 🚀"));
 
-// Inicia o servidor
+// ▶️ Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
