@@ -32,33 +32,30 @@ const mp = new MercadoPagoConfig({
 app.post("/create-payment", async (req, res) => {
   const { nome, telefone, numeros } = req.body;
 
-  try {
-    if (!nome || !telefone || !Array.isArray(numeros) || numeros.length === 0) {
-      return res.status(400).json({ error: "Dados incompletos ou números inválidos." });
-    }
+  if (!nome || !telefone || !Array.isArray(numeros) || numeros.length === 0) {
+    return res.status(400).json({ error: "Dados incompletos ou números inválidos." });
+  }
 
+  try {
     const numerosStr = numeros.map((n) => n.toString());
     const snapshot = await db.getAll(...numerosStr.map((n) => db.collection("numeros").doc(n)));
 
     const quinzeMinutos = 15 * 60 * 1000;
     const agora = Date.now();
 
-    for (let i = 0; i < snapshot.length; i++) {
-      const doc = snapshot[i];
-      const data = doc.data();
-
+    for (const doc of snapshot) {
       if (!doc.exists) {
         return res.status(400).json({ error: `O número ${doc.id} não existe no banco.` });
       }
 
+      const data = doc.data();
       const status = data.status;
 
       if (!status || status === "disponivel") continue;
 
       if (
         status === "reservado" &&
-        data.timestamp &&
-        data.timestamp.toDate &&
+        data.timestamp?.toDate &&
         agora - data.timestamp.toDate().getTime() > quinzeMinutos
       ) {
         await db.collection("numeros").doc(doc.id).update({ status: "disponivel" });
@@ -158,14 +155,38 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// 📄 Listar números
+// 📄 Listar números (libera reservas expiradas automaticamente)
 app.get("/numeros", async (req, res) => {
   try {
     const snapshot = await db.collection("numeros").get();
-    const numeros = snapshot.docs.map((doc) => ({
-      numero: doc.id,
-      status: doc.data().status,
-    }));
+    const quinzeMinutos = 15 * 60 * 1000;
+    const agora = Date.now();
+    const batch = db.batch();
+
+    const numeros = [];
+
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      const status = data.status;
+
+      if (status === "reservado" && data.timestamp?.toDate) {
+        const expirado = agora - data.timestamp.toDate().getTime() > quinzeMinutos;
+        if (expirado) {
+          batch.update(doc.ref, { status: "disponivel" });
+          numeros.push({ numero: doc.id, status: "disponivel" });
+          return;
+        }
+      }
+
+      numeros.push({ numero: doc.id, status });
+    });
+
+    if (!batch._ops.length) {
+      // Nenhuma atualização pendente, retorna direto
+      return res.json(numeros);
+    }
+
+    await batch.commit();
     res.json(numeros);
   } catch (err) {
     console.error("Erro ao buscar números:", err);
