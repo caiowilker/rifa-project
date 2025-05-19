@@ -33,22 +33,30 @@ app.post("/create-payment", async (req, res) => {
   const { nome, telefone, numeros } = req.body;
 
   try {
+    // Validação básica dos dados
     if (!nome || !telefone || !Array.isArray(numeros) || numeros.length === 0) {
       return res.status(400).json({ error: "Dados incompletos ou números inválidos." });
     }
 
+    // Normaliza números para strings
     const numerosStr = numeros.map((n) => n.toString());
 
-    // Verificar disponibilidade dos números
+    // Busca documentos dos números solicitados
     const snapshot = await db.getAll(...numerosStr.map((n) => db.collection("numeros").doc(n)));
+
+    // Verifica se os números existem e se estão disponíveis
     for (let i = 0; i < snapshot.length; i++) {
       const doc = snapshot[i];
-      if (doc.exists && doc.data().status !== "disponivel") {
-        return res.status(400).json({ error: `O número ${doc.id} já está ${doc.data().status}.` });
+      if (!doc.exists) {
+        return res.status(400).json({ error: `O número ${doc.id} não existe no banco.` });
+      }
+      const status = doc.data().status;
+      if (status !== "disponivel") {
+        return res.status(400).json({ error: `O número ${doc.id} já está ${status}.` });
       }
     }
 
-    // Reservar números
+    // Reserva os números com batch para atomicidade
     const batch = db.batch();
     numerosStr.forEach((n) => {
       const ref = db.collection("numeros").doc(n);
@@ -57,14 +65,14 @@ app.post("/create-payment", async (req, res) => {
         telefone,
         status: "reservado",
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      }, { merge: true }); // merge:true para evitar sobrescrever dados desnecessariamente
     });
     await batch.commit();
 
     const total = numeros.length * 5; // R$5 por número
     const title = `Rifa número(s): ${numerosStr.join(", ")}`;
 
-    // Fallback de simulação
+    // Se não configurou Mercado Pago, retorna simulação
     if (!process.env.MP_ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN === "") {
       return res.json({
         init_point: "https://www.mercadopago.com.br/sandbox/checkout/simulado",
@@ -72,6 +80,7 @@ app.post("/create-payment", async (req, res) => {
       });
     }
 
+    // Cria preferência de pagamento
     const preference = {
       items: [
         {
@@ -101,7 +110,7 @@ app.post("/create-payment", async (req, res) => {
   }
 });
 
-// 📩 Webhook do Mercado Pago
+// 📩 Webhook do Mercado Pago para atualizar status de pagamento
 app.post("/webhook", async (req, res) => {
   try {
     const paymentId = req.body.data?.id;
@@ -114,11 +123,11 @@ app.post("/webhook", async (req, res) => {
     const paymentResponse = await mp.payment.findById(paymentId);
 
     if (paymentResponse.body.status === "approved") {
-      const numeros = paymentResponse.body.external_reference.split(",");
+      const numeros = paymentResponse.body.external_reference.split(",").map(n => n.trim());
       const batch = db.batch();
 
       numeros.forEach((n) => {
-        const ref = db.collection("numeros").doc(n.trim());
+        const ref = db.collection("numeros").doc(n);
         batch.update(ref, {
           status: "pago",
           pagamento_confirmado_em: admin.firestore.FieldValue.serverTimestamp(),
@@ -138,7 +147,7 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// 📄 Listar números
+// 📄 Listar números e seus status
 app.get("/numeros", async (req, res) => {
   try {
     const snapshot = await db.collection("numeros").get();
@@ -153,7 +162,7 @@ app.get("/numeros", async (req, res) => {
   }
 });
 
-// 🏠 Rota raiz
+// 🏠 Rota raiz simples para checagem
 app.get("/", (req, res) => res.send("✅ API da Rifa Rodando com Mercado Pago 2.7 🚀"));
 
 // ▶️ Iniciar servidor
