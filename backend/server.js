@@ -23,40 +23,52 @@ admin.initializeApp({
 });
 const db = admin.firestore();
 
-// 🛒 Mercado Pago (versão 2.7)
+// 🛒 Mercado Pago (SDK v2.7)
 const mp = new mercadopago.MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN,
 });
 
-// 🧾 Criar pagamento
+// 🧾 Criar pagamento com reserva de número
 app.post("/create-payment", async (req, res) => {
   const { nome, telefone, numeros } = req.body;
 
   try {
-    // Validação básica dos dados
     if (!nome || !telefone || !Array.isArray(numeros) || numeros.length === 0) {
       return res.status(400).json({ error: "Dados incompletos ou números inválidos." });
     }
 
-    // Normaliza números para strings
     const numerosStr = numeros.map((n) => n.toString());
-
-    // Busca documentos dos números solicitados
     const snapshot = await db.getAll(...numerosStr.map((n) => db.collection("numeros").doc(n)));
 
-    // Verifica se os números existem e se estão disponíveis
+    const quinzeMinutos = 15 * 60 * 1000;
+    const agora = Date.now();
+
+    // 🔁 Verifica e expira reservas antigas
     for (let i = 0; i < snapshot.length; i++) {
       const doc = snapshot[i];
+      const data = doc.data();
+
       if (!doc.exists) {
         return res.status(400).json({ error: `O número ${doc.id} não existe no banco.` });
       }
-      const status = doc.data().status;
-      if (status !== "disponivel") {
-        return res.status(400).json({ error: `O número ${doc.id} já está ${status}.` });
+
+      if (data.status === "disponivel") continue;
+
+      if (
+        data.status === "reservado" &&
+        data.timestamp &&
+        data.timestamp.toDate &&
+        agora - data.timestamp.toDate().getTime() > quinzeMinutos
+      ) {
+        // 🔓 Libera número expirado automaticamente
+        await db.collection("numeros").doc(doc.id).update({ status: "disponivel" });
+        continue;
       }
+
+      return res.status(400).json({ error: `O número ${doc.id} já está ${data.status}.` });
     }
 
-    // Reserva os números com batch para atomicidade
+    // 🧷 Reserva números
     const batch = db.batch();
     numerosStr.forEach((n) => {
       const ref = db.collection("numeros").doc(n);
@@ -65,14 +77,13 @@ app.post("/create-payment", async (req, res) => {
         telefone,
         status: "reservado",
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true }); // merge:true para evitar sobrescrever dados desnecessariamente
+      }, { merge: true });
     });
     await batch.commit();
 
-    const total = numeros.length * 5; // R$5 por número
+    const total = numeros.length * 5;
     const title = `Rifa número(s): ${numerosStr.join(", ")}`;
 
-    // Se não configurou Mercado Pago, retorna simulação
     if (!process.env.MP_ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN === "") {
       return res.json({
         init_point: "https://www.mercadopago.com.br/sandbox/checkout/simulado",
@@ -80,15 +91,8 @@ app.post("/create-payment", async (req, res) => {
       });
     }
 
-    // Cria preferência de pagamento
     const preference = {
-      items: [
-        {
-          title,
-          quantity: 1,
-          unit_price: total,
-        },
-      ],
+      items: [{ title, quantity: 1, unit_price: total }],
       payer: { name: nome },
       payment_methods: {
         excluded_payment_types: [{ id: "credit_card" }],
@@ -110,7 +114,7 @@ app.post("/create-payment", async (req, res) => {
   }
 });
 
-// 📩 Webhook do Mercado Pago para atualizar status de pagamento
+// 📩 Webhook Mercado Pago: confirmar pagamento
 app.post("/webhook", async (req, res) => {
   try {
     const paymentId = req.body.data?.id;
@@ -162,7 +166,7 @@ app.get("/numeros", async (req, res) => {
   }
 });
 
-// 🏠 Rota raiz simples para checagem
+// 🏠 Rota raiz
 app.get("/", (req, res) => res.send("✅ API da Rifa Rodando com Mercado Pago 2.7 🚀"));
 
 // ▶️ Iniciar servidor
