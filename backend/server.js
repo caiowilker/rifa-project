@@ -23,9 +23,9 @@ admin.initializeApp({
 });
 const db = admin.firestore();
 
-// 🛒 Mercado Pago (SDK v2.7)
-const mp = new mercadopago.MercadoPagoConfig({
-  accessToken: process.env.MP_ACCESS_TOKEN,
+// 🛒 Mercado Pago (SDK v2.7) - Configuração correta
+mercadopago.configure({
+  access_token: process.env.MP_ACCESS_TOKEN,
 });
 
 // 🧾 Criar pagamento com reserva de número
@@ -106,7 +106,8 @@ app.post("/create-payment", async (req, res) => {
       external_reference: numerosStr.join(","),
     };
 
-    const preferenceResponse = await mp.preferences.create({ body: preference });
+    // Chamada correta para criar preferência
+    const preferenceResponse = await mercadopago.preferences.create(preference);
 
     return res.json({ init_point: preferenceResponse.body.init_point });
   } catch (error) {
@@ -128,7 +129,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(400);
     }
 
-    const paymentResponse = await mp.payment.findById(paymentId);
+    const paymentResponse = await mercadopago.payment.findById(paymentId);
 
     if (paymentResponse.body.status === "approved") {
       const numeros = paymentResponse.body.external_reference.split(",").map(n => n.trim());
