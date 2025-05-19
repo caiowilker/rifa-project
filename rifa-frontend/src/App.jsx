@@ -26,11 +26,11 @@ const App = () => {
     const info = numeros.find((n) => n.numero === numero.toString());
     if (info?.status === "pago" || info?.status === "reservado") return;
 
-    if (numerosSelecionados.includes(numero)) {
-      setNumerosSelecionados((prev) => prev.filter((n) => n !== numero));
-    } else {
-      setNumerosSelecionados((prev) => [...prev, numero]);
-    }
+    setNumerosSelecionados((prev) =>
+      prev.includes(numero)
+        ? prev.filter((n) => n !== numero)
+        : [...prev, numero]
+    );
   };
 
   const handleSubmit = async (e) => {
@@ -56,32 +56,21 @@ const App = () => {
     const info = numeros.find((n) => n.numero === numero.toString());
     const status = info?.status;
 
-    let baseStyle =
-      "w-12 h-12 rounded-md font-semibold flex items-center justify-center border shadow text-sm transition";
-    let estilo = "";
-
-    if (numerosSelecionados.includes(numero)) {
-      estilo = " bg-blue-600 text-white scale-105";
-    } else if (status === "pago") {
-      estilo = " bg-red-400 text-white cursor-not-allowed";
-    } else if (status === "reservado") {
-      estilo = " bg-yellow-400 text-white cursor-not-allowed";
-    } else {
-      estilo = " bg-green-400 hover:bg-green-500 text-white cursor-pointer";
-    }
+    let bgColor = "bg-green-500 hover:bg-green-600";
+    if (status === "pago") bgColor = "bg-red-500 cursor-not-allowed";
+    else if (status === "reservado") bgColor = "bg-yellow-400 cursor-not-allowed";
+    else if (numerosSelecionados.includes(numero)) bgColor = "bg-blue-600 scale-105";
 
     return (
       <button
         key={numero}
-        className={`${baseStyle} ${estilo}`}
-        disabled={status === "pago" || status === "reservado"}
         onClick={() => toggleNumero(numero)}
+        disabled={status === "pago" || status === "reservado"}
+        className={`w-10 h-10 md:w-12 md:h-12 text-sm font-semibold text-white rounded-md shadow flex items-center justify-center transition transform ${bgColor}`}
         title={
-          status === "pago"
-            ? "Já pago"
-            : status === "reservado"
-            ? "Reservado"
-            : "Disponível"
+          status === "pago" ? "Já pago" :
+          status === "reservado" ? "Reservado" :
+          "Disponível"
         }
       >
         {numero}
@@ -90,14 +79,14 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-tr from-indigo-100 to-blue-100 p-6 flex flex-col items-center">
-      <div className="w-full max-w-4xl">
-        <h1 className="text-4xl font-bold text-center text-gray-800 mb-8">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-blue-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-4xl font-bold text-center text-gray-800 mb-10">
           🎟️ Rifa Premiada — Escolha seus números
         </h1>
 
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-10">
-          <div className="grid grid-cols-10 gap-2 justify-center">
+        <div className="bg-white p-6 rounded-2xl shadow-lg mb-10">
+          <div className="grid grid-cols-5 sm:grid-cols-10 md:grid-cols-20 gap-2 justify-center">
             {Array.from({ length: TOTAL_NUMEROS }, (_, i) => renderNumero(i + 1))}
           </div>
           {numerosSelecionados.length > 0 && (
@@ -112,10 +101,10 @@ const App = () => {
 
         <form
           onSubmit={handleSubmit}
-          className="bg-white shadow-xl rounded-xl p-6 space-y-4 max-w-lg mx-auto"
+          className="bg-white p-6 rounded-2xl shadow-xl max-w-lg mx-auto space-y-4"
         >
-          <h2 className="text-xl font-semibold text-center text-gray-700 mb-4">
-            Preencha seus dados para reservar
+          <h2 className="text-xl font-semibold text-center text-gray-700 mb-2">
+            Preencha seus dados para gerar o pagamento
           </h2>
           <input
             type="text"
