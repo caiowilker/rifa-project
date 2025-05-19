@@ -182,7 +182,6 @@ app.get("/numeros", async (req, res) => {
     });
 
     if (!batch._ops.length) {
-      // Nenhuma atualização pendente, retorna direto
       return res.json(numeros);
     }
 
@@ -191,6 +190,63 @@ app.get("/numeros", async (req, res) => {
   } catch (err) {
     console.error("Erro ao buscar números:", err);
     res.status(500).json({ error: "Erro ao buscar números" });
+  }
+});
+
+// 🔍 Buscar ganhador por número
+app.get("/ganhador/:numero", async (req, res) => {
+  const numero = req.params.numero;
+
+  try {
+    const doc = await db.collection("numeros").doc(numero).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Número não encontrado." });
+    }
+
+    const data = doc.data();
+
+    if (data.status !== "pago") {
+      return res.status(400).json({ error: "Número não foi pago ainda." });
+    }
+
+    return res.json({
+      numero,
+      nome: data.nome,
+      telefone: data.telefone,
+      status: data.status,
+    });
+  } catch (err) {
+    console.error("Erro ao buscar ganhador:", err);
+    res.status(500).json({ error: "Erro interno ao buscar ganhador." });
+  }
+});
+
+// 🎯 Sortear um número pago aleatoriamente
+app.get("/sortear", async (req, res) => {
+  try {
+    const snapshot = await db.collection("numeros").where("status", "==", "pago").get();
+
+    if (snapshot.empty) {
+      return res.status(400).json({ error: "Nenhum número pago encontrado para o sorteio." });
+    }
+
+    const pagos = snapshot.docs.map((doc) => ({
+      numero: doc.id,
+      ...doc.data(),
+    }));
+
+    const sorteado = pagos[Math.floor(Math.random() * pagos.length)];
+
+    return res.json({
+      mensagem: "Número sorteado com sucesso!",
+      numero: sorteado.numero,
+      nome: sorteado.nome,
+      telefone: sorteado.telefone,
+    });
+  } catch (err) {
+    console.error("Erro ao sortear número:", err);
+    res.status(500).json({ error: "Erro ao realizar sorteio." });
   }
 });
 
