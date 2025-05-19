@@ -52,20 +52,24 @@ app.post("/create-payment", async (req, res) => {
         return res.status(400).json({ error: `O número ${doc.id} não existe no banco.` });
       }
 
-      if (data.status === "disponivel") continue;
+      const status = data.status;
 
+      // Se status for inválido ou ausente, tratar como "disponivel"
+      if (!status || status === "disponivel") continue;
+
+      // Se estiver reservado e expirado, liberar
       if (
-        data.status === "reservado" &&
+        status === "reservado" &&
         data.timestamp &&
         data.timestamp.toDate &&
         agora - data.timestamp.toDate().getTime() > quinzeMinutos
       ) {
-        // 🔓 Libera número expirado automaticamente
         await db.collection("numeros").doc(doc.id).update({ status: "disponivel" });
         continue;
       }
 
-      return res.status(400).json({ error: `O número ${doc.id} já está ${data.status}.` });
+      // Se estiver reservado (não expirado) ou pago, bloquear
+      return res.status(400).json({ error: `O número ${doc.id} já está ${status}.` });
     }
 
     // 🧷 Reserva números
