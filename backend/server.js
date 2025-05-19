@@ -2,14 +2,14 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const admin = require("firebase-admin");
 const cors = require("cors");
-const mercadopago = require("mercadopago");
+const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 require("dotenv").config();
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// 🔐 Firebase setup via variável de ambiente
+// 🔐 Firebase setup
 let serviceAccount;
 try {
   serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON);
@@ -23,12 +23,12 @@ admin.initializeApp({
 });
 const db = admin.firestore();
 
-// 🛒 Mercado Pago (SDK v2.7) - Configuração correta
-mercadopago.configure({
-  access_token: process.env.MP_ACCESS_TOKEN,
+// 🛒 Mercado Pago (SDK 2.7+)
+const mp = new MercadoPagoConfig({
+  accessToken: process.env.MP_ACCESS_TOKEN,
 });
 
-// 🧾 Criar pagamento com reserva de número
+// 🧾 Criar pagamento com reserva
 app.post("/create-payment", async (req, res) => {
   const { nome, telefone, numeros } = req.body;
 
@@ -43,7 +43,6 @@ app.post("/create-payment", async (req, res) => {
     const quinzeMinutos = 15 * 60 * 1000;
     const agora = Date.now();
 
-    // 🔁 Verifica e expira reservas antigas
     for (let i = 0; i < snapshot.length; i++) {
       const doc = snapshot[i];
       const data = doc.data();
@@ -54,10 +53,8 @@ app.post("/create-payment", async (req, res) => {
 
       const status = data.status;
 
-      // Se status for inválido ou ausente, tratar como "disponivel"
       if (!status || status === "disponivel") continue;
 
-      // Se estiver reservado e expirado, liberar
       if (
         status === "reservado" &&
         data.timestamp &&
@@ -68,58 +65,62 @@ app.post("/create-payment", async (req, res) => {
         continue;
       }
 
-      // Se estiver reservado (não expirado) ou pago, bloquear
       return res.status(400).json({ error: `O número ${doc.id} já está ${status}.` });
     }
 
-    // 🧷 Reserva números
     const batch = db.batch();
     numerosStr.forEach((n) => {
       const ref = db.collection("numeros").doc(n);
-      batch.set(ref, {
-        nome,
-        telefone,
-        status: "reservado",
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
+      batch.set(
+        ref,
+        {
+          nome,
+          telefone,
+          status: "reservado",
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
     });
     await batch.commit();
 
     const total = numeros.length * 5;
     const title = `Rifa número(s): ${numerosStr.join(", ")}`;
 
-    if (!process.env.MP_ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN === "") {
-      return res.json({
-        init_point: "https://www.mercadopago.com.br/sandbox/checkout/simulado",
-        simulacao: true,
-      });
-    }
+    const preference = new Preference(mp);
 
-    const preference = {
-      items: [{ title, quantity: 1, unit_price: total }],
-      payer: { name: nome },
-      payment_methods: {
-        excluded_payment_types: [{ id: "credit_card" }],
-        default_payment_method_id: "pix",
+    const preferenceResponse = await preference.create({
+      body: {
+        items: [
+          {
+            title,
+            quantity: 1,
+            unit_price: total,
+          },
+        ],
+        payer: {
+          name: nome,
+        },
+        payment_methods: {
+          excluded_payment_types: [{ id: "credit_card" }],
+          default_payment_method_id: "pix",
+        },
+        notification_url: process.env.NOTIFICATION_URL,
+        external_reference: numerosStr.join(","),
       },
-      notification_url: process.env.NOTIFICATION_URL,
-      external_reference: numerosStr.join(","),
-    };
+    });
 
-    // Chamada correta para criar preferência
-    const preferenceResponse = await mercadopago.preferences.create(preference);
-
-    return res.json({ init_point: preferenceResponse.body.init_point });
+    return res.json({ init_point: preferenceResponse.init_point });
   } catch (error) {
-    console.error("Erro ao criar pagamento:", error.response?.body || error.message || error);
+    console.error("Erro ao criar pagamento:", error);
     return res.status(500).json({
       error: "Erro ao criar pagamento",
-      details: error.response?.body || error.message || error.toString(),
+      details: error.message || error.toString(),
     });
   }
 });
 
-// 📩 Webhook Mercado Pago: confirmar pagamento
+// 📩 Webhook Mercado Pago
 app.post("/webhook", async (req, res) => {
   try {
     const paymentId = req.body.data?.id;
@@ -129,10 +130,11 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(400);
     }
 
-    const paymentResponse = await mercadopago.payment.findById(paymentId);
+    const payment = new Payment(mp);
+    const paymentResponse = await payment.get({ id: paymentId });
 
-    if (paymentResponse.body.status === "approved") {
-      const numeros = paymentResponse.body.external_reference.split(",").map(n => n.trim());
+    if (paymentResponse.status === "approved") {
+      const numeros = paymentResponse.external_reference.split(",").map((n) => n.trim());
       const batch = db.batch();
 
       numeros.forEach((n) => {
@@ -146,17 +148,17 @@ app.post("/webhook", async (req, res) => {
       await batch.commit();
       console.log(`Pagamento confirmado para os números: ${numeros.join(", ")}`);
     } else {
-      console.log(`Pagamento não aprovado. Status: ${paymentResponse.body.status}`);
+      console.log(`Pagamento não aprovado. Status: ${paymentResponse.status}`);
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("Erro no webhook:", err.response?.body || err.message || err);
+    console.error("Erro no webhook:", err);
     res.sendStatus(500);
   }
 });
 
-// 📄 Listar números e seus status
+// 📄 Listar números
 app.get("/numeros", async (req, res) => {
   try {
     const snapshot = await db.collection("numeros").get();
