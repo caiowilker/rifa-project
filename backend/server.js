@@ -46,6 +46,7 @@ app.post("/create-payment", async (req, res) => {
     const agora = Date.now();
     const quinzeMin = 15 * 60 * 1000;
     const atual = data.lista;
+    let atualizado = false;
 
     for (const n of numeros) {
       const entry = atual[n];
@@ -53,10 +54,15 @@ app.post("/create-payment", async (req, res) => {
 
       if (entry.status === "reservado" && agora - entry.timestamp > quinzeMin) {
         atual[n] = { status: "disponivel" };
+        atualizado = true;
         continue;
       }
 
       return res.status(400).json({ error: `Número ${n} já está ${entry.status}` });
+    }
+
+    if (atualizado) {
+      await numerosRef.update({ lista: atual }); // libera reservas expiradas
     }
 
     numeros.forEach((n) => {

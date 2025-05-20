@@ -10,13 +10,17 @@ const App = () => {
   const [numerosSelecionados, setNumerosSelecionados] = useState([]);
   const [linkPagamento, setLinkPagamento] = useState("");
 
+  const alertaUsuario = (mensagem) => {
+    alert(mensagem);
+  };
+
   useEffect(() => {
     const buscarNumeros = async () => {
       try {
         const response = await axios.get("https://rifa-project-08f5.onrender.com/numeros");
         setNumeros(response.data);
       } catch (err) {
-        alert("Erro ao buscar números: " + err.message);
+        alertaUsuario("Erro ao carregar os números da rifa. Por favor, tente novamente em instantes.");
       }
     };
     buscarNumeros();
@@ -24,7 +28,14 @@ const App = () => {
 
   const toggleNumero = (numero) => {
     const info = numeros.find((n) => n.numero === numero.toString());
-    if (info?.status === "pago" || info?.status === "reservado") return;
+    if (info?.status === "pago") {
+      alertaUsuario(`O número ${numero} já foi pago e não está mais disponível.`);
+      return;
+    }
+    if (info?.status === "reservado") {
+      alertaUsuario(`O número ${numero} está temporariamente reservado por outro participante.`);
+      return;
+    }
 
     setNumerosSelecionados((prev) =>
       prev.includes(numero)
@@ -35,8 +46,19 @@ const App = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!nome.trim() || !telefone.trim()) {
+      alertaUsuario("Por favor, preencha corretamente seu nome e número de WhatsApp.");
+      return;
+    }
+
+    if (telefone.length < 10 || telefone.length > 12) {
+      alertaUsuario("Informe um número de WhatsApp válido com DDD (ex: 11999999999).");
+      return;
+    }
+
     if (numerosSelecionados.length === 0) {
-      alert("Selecione pelo menos um número disponível!");
+      alertaUsuario("Selecione ao menos um número disponível antes de gerar o pagamento.");
       return;
     }
 
@@ -47,8 +69,10 @@ const App = () => {
         numeros: numerosSelecionados,
       });
       setLinkPagamento(response.data.init_point);
+      alertaUsuario("Reserva realizada com sucesso! Agora, finalize o pagamento pelo link abaixo.");
     } catch (error) {
-      alert("Erro ao criar pagamento: " + (error.response?.data?.error || error.message));
+      const mensagemErro = error.response?.data?.error || error.message;
+      alertaUsuario(`Erro ao gerar o pagamento: ${mensagemErro}`);
     }
   };
 
@@ -68,9 +92,9 @@ const App = () => {
         disabled={status === "pago" || status === "reservado"}
         className={`w-10 h-10 md:w-12 md:h-12 text-sm font-semibold text-white rounded-md shadow flex items-center justify-center transition transform ${bgColor}`}
         title={
-          status === "pago" ? "Já pago" :
-          status === "reservado" ? "Reservado" :
-          "Disponível"
+          status === "pago" ? "Número já pago" :
+          status === "reservado" ? "Reservado temporariamente" :
+          "Clique para selecionar"
         }
       >
         {numero}
@@ -104,11 +128,11 @@ const App = () => {
           className="bg-white p-6 rounded-2xl shadow-xl max-w-lg mx-auto space-y-4"
         >
           <h2 className="text-xl font-semibold text-center text-gray-700 mb-2">
-            Preencha seus dados para gerar o pagamento
+            Informe seus dados para gerar o pagamento
           </h2>
           <input
             type="text"
-            placeholder="Seu nome completo"
+            placeholder="Nome completo"
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             required
@@ -116,7 +140,7 @@ const App = () => {
           />
           <input
             type="tel"
-            placeholder="WhatsApp com DDD"
+            placeholder="WhatsApp com DDD (ex: 11999999999)"
             value={telefone}
             onChange={(e) => setTelefone(e.target.value)}
             required
@@ -126,7 +150,7 @@ const App = () => {
             type="submit"
             className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition"
           >
-            💸 Gerar Pagamento
+            💸 Gerar Pagamento via PIX
           </button>
         </form>
 
