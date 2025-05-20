@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { Toaster, toast } from "react-hot-toast";
 
 const TOTAL_NUMEROS = 1000;
 
@@ -9,9 +10,15 @@ const App = () => {
   const [telefone, setTelefone] = useState("");
   const [numerosSelecionados, setNumerosSelecionados] = useState([]);
   const [linkPagamento, setLinkPagamento] = useState("");
+  const [carregando, setCarregando] = useState(false);
 
-  const alertaUsuario = (mensagem) => {
-    alert(mensagem);
+  const alertaUsuario = (mensagem, tipo = "info") => {
+    const tipos = {
+      info: () => toast(mensagem),
+      sucesso: () => toast.success(mensagem),
+      erro: () => toast.error(mensagem),
+    };
+    (tipos[tipo] || tipos.info)();
   };
 
   useEffect(() => {
@@ -20,20 +27,33 @@ const App = () => {
         const response = await axios.get("https://rifa-project-08f5.onrender.com/numeros");
         setNumeros(response.data);
       } catch (err) {
-        alertaUsuario("Erro ao carregar os números da rifa. Por favor, tente novamente em instantes.");
+        alertaUsuario("Erro ao carregar os números da rifa. Por favor, tente novamente em instantes.", "erro");
       }
     };
     buscarNumeros();
   }, []);
 
+  // Função para formatar telefone com máscara brasileira
+  const formatarTelefone = (valor) => {
+    const apenasDigitos = valor.replace(/\D/g, "");
+    if (apenasDigitos.length <= 2) return apenasDigitos;
+    if (apenasDigitos.length <= 7) {
+      return `(${apenasDigitos.slice(0, 2)}) ${apenasDigitos.slice(2)}`;
+    }
+    if (apenasDigitos.length <= 11) {
+      return `(${apenasDigitos.slice(0, 2)}) ${apenasDigitos.slice(2, 7)}-${apenasDigitos.slice(7)}`;
+    }
+    return `(${apenasDigitos.slice(0, 2)}) ${apenasDigitos.slice(2, 7)}-${apenasDigitos.slice(7, 11)}`;
+  };
+
   const toggleNumero = (numero) => {
     const info = numeros.find((n) => n.numero === numero.toString());
     if (info?.status === "pago") {
-      alertaUsuario(`O número ${numero} já foi pago e não está mais disponível.`);
+      alertaUsuario(`O número ${numero} já foi pago e não está mais disponível.`, "erro");
       return;
     }
     if (info?.status === "reservado") {
-      alertaUsuario(`O número ${numero} está temporariamente reservado por outro participante.`);
+      alertaUsuario(`O número ${numero} está temporariamente reservado por outro participante.`, "info");
       return;
     }
 
@@ -47,32 +67,38 @@ const App = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!nome.trim() || !telefone.trim()) {
-      alertaUsuario("Por favor, preencha corretamente seu nome e número de WhatsApp.");
+    // Remove a formatação para validar apenas números
+    const telefoneSemFormatacao = telefone.replace(/\D/g, "");
+
+    if (!nome.trim() || !telefoneSemFormatacao) {
+      alertaUsuario("Por favor, preencha corretamente seu nome e número de WhatsApp.", "erro");
       return;
     }
 
-    if (telefone.length < 10 || telefone.length > 12) {
-      alertaUsuario("Informe um número de WhatsApp válido com DDD (ex: 11999999999).");
+    if (telefoneSemFormatacao.length < 10 || telefoneSemFormatacao.length > 11) {
+      alertaUsuario("Informe um número de WhatsApp válido com DDD (ex: 11999999999).", "erro");
       return;
     }
 
     if (numerosSelecionados.length === 0) {
-      alertaUsuario("Selecione ao menos um número disponível antes de gerar o pagamento.");
+      alertaUsuario("Selecione ao menos um número disponível antes de gerar o pagamento.", "erro");
       return;
     }
 
+    setCarregando(true);
     try {
       const response = await axios.post("https://rifa-project-08f5.onrender.com/create-payment", {
         nome,
-        telefone,
+        telefone: telefoneSemFormatacao,
         numeros: numerosSelecionados,
       });
       setLinkPagamento(response.data.init_point);
-      alertaUsuario("Reserva realizada com sucesso! Agora, finalize o pagamento pelo link abaixo.");
+      alertaUsuario("Reserva realizada com sucesso! Agora finalize o pagamento.", "sucesso");
     } catch (error) {
       const mensagemErro = error.response?.data?.error || error.message;
-      alertaUsuario(`Erro ao gerar o pagamento: ${mensagemErro}`);
+      alertaUsuario(`Erro ao gerar o pagamento: ${mensagemErro}`, "erro");
+    } finally {
+      setCarregando(false);
     }
   };
 
@@ -104,6 +130,7 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-blue-50 p-6">
+      <Toaster position="top-center" />
       <div className="max-w-7xl mx-auto">
         <h1 className="text-4xl font-bold text-center text-gray-800 mb-10">
           🎟️ Rifa Premiada — Escolha seus números
@@ -140,29 +167,34 @@ const App = () => {
           />
           <input
             type="tel"
-            placeholder="WhatsApp com DDD (ex: 11999999999)"
+            placeholder="WhatsApp com DDD (ex: (11) 99999-9999)"
             value={telefone}
-            onChange={(e) => setTelefone(e.target.value)}
+            onChange={(e) => setTelefone(formatarTelefone(e.target.value))}
             required
+            maxLength={15}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring focus:outline-none"
           />
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition"
+            disabled={carregando}
+            className={`w-full text-white py-3 rounded-lg transition ${
+              carregando ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+            }`}
           >
-            💸 Gerar Pagamento via PIX
+            {carregando ? "Gerando link..." : "💸 Gerar Pagamento via PIX"}
           </button>
         </form>
 
         {linkPagamento && (
           <div className="text-center mt-6">
+            <p className="text-green-700 mb-2 font-medium">Seu número está reservado!</p>
             <a
               href={linkPagamento}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-6 rounded-lg transition"
             >
-              ✅ Clique aqui para pagar com PIX
+              ✅ Finalizar pagamento via PIX
             </a>
           </div>
         )}
