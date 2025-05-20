@@ -81,11 +81,10 @@ app.post("/create-payment", async (req, res) => {
     });
     await batch.commit();
 
-    const total = numeros.length * 5;
+    const total = numeros.length * 4.99;
     const title = `Rifa número(s): ${numerosStr.join(", ")}`;
 
     const preference = new Preference(mp);
-
     const preferenceResponse = await preference.create({
       body: {
         items: [
@@ -181,11 +180,10 @@ app.get("/numeros", async (req, res) => {
       numeros.push({ numero: doc.id, status });
     });
 
-    if (!batch._ops.length) {
-      return res.json(numeros);
+    if (batch._ops?.length) {
+      await batch.commit();
     }
 
-    await batch.commit();
     res.json(numeros);
   } catch (err) {
     console.error("Erro ao buscar números:", err);
