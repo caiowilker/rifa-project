@@ -8,15 +8,20 @@ admin.initializeApp({
 const db = admin.firestore();
 
 async function preencherNumeros() {
-  const batch = db.batch();
+  const numerosPagos = ["48", "205", "215", "225", "235", "113"];
+  const lista = {};
 
   for (let i = 1; i <= 1000; i++) {
-    const ref = db.collection("numeros").doc(i.toString());
-    batch.set(ref, { status: "disponivel" }); // SEM acento, igual ao backend
+    const numStr = i.toString();
+    if (numerosPagos.includes(numStr)) {
+      lista[numStr] = { status: "pago" };
+    } else {
+      lista[numStr] = { status: "disponivel" };
+    }
   }
 
-  await batch.commit();
-  console.log("✅ Números de 1 a 1000 preenchidos com status 'disponivel'");
+  await db.collection("rifa").doc("numeros").set({ lista });
+  console.log("✅ Números preenchidos com status 'disponivel' e números pagos definidos.");
 }
 
 preencherNumeros();
